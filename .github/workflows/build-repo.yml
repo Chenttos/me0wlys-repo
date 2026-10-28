@@ -1,10 +1,8 @@
-
 name: Build Sileo Repository
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -20,8 +18,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install tools
         run: |
@@ -32,20 +29,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           mkdir -p public/debs debs
-
           shopt -s nullglob
           packages=(debs/*.deb)
           if [ ${#packages[@]} -gt 0 ]; then
             cp "${packages[@]}" public/debs/
           fi
-
           cd public
-
           dpkg-scanpackages --multiversion debs /dev/null > Packages
           gzip -9 -k -f Packages
-
           {
             echo "Origin: me0wlys"
             echo "Label: me0wlys Repo"
@@ -55,38 +47,26 @@ jobs:
             echo "Components: main"
             echo "Description: me0wlys Sileo Repository"
             echo "Date: $(date -Ru)"
-            echo "MD5Sum:"
-            for f in Packages Packages.gz; do
-              printf " %s %s %s\n" \
-                "$(md5sum "$f" | cut -d' ' -f1)" \
-                "$(wc -c < "$f" | tr -d ' ')" "$f"
-            done
-            echo "SHA1:"
-            for f in Packages Packages.gz; do
-              printf " %s %s %s\n" \
-                "$(sha1sum "$f" | cut -d' ' -f1)" \
-                "$(wc -c < "$f" | tr -d ' ')" "$f"
-            done
-            echo "SHA256:"
-            for f in Packages Packages.gz; do
-              printf " %s %s %s\n" \
-                "$(sha256sum "$f" | cut -d' ' -f1)" \
-                "$(wc -c < "$f" | tr -d ' ')" "$f"
-            done
-            echo "SHA512:"
-            for f in Packages Packages.gz; do
-              printf " %s %s %s\n" \
-                "$(sha512sum "$f" | cut -d' ' -f1)" \
-                "$(wc -c < "$f" | tr -d ' ')" "$f"
+            for algorithm in MD5Sum SHA1 SHA256 SHA512; do
+              case "$algorithm" in
+                MD5Sum) command=md5sum ;;
+                SHA1) command=sha1sum ;;
+                SHA256) command=sha256sum ;;
+                SHA512) command=sha512sum ;;
+              esac
+              echo "$algorithm:"
+              for f in Packages Packages.gz; do
+                printf " %s %s %s\n" "$($command "$f" | cut -d' ' -f1)" "$(wc -c < "$f" | tr -d ' ')" "$f"
+              done
             done
           } > Release
-
           cat > index.html <<'EOF'
           <!doctype html>
           <html lang="en">
           <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
+            <link rel="icon" href="CydiaIcon.png">
             <title>me0wlys Repo</title>
           </head>
           <body>
@@ -97,6 +77,12 @@ jobs:
           </body>
           </html>
           EOF
+
+      - name: Copy repository icon
+        run: |
+          if [ -f CydiaIcon.png ]; then
+            cp CydiaIcon.png public/CydiaIcon.png
+          fi
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -110,6 +96,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy
+      - name: Deploy Pages
         id: deployment
         uses: actions/deploy-pages@v4
