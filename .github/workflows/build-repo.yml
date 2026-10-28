@@ -23,31 +23,77 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Generate APT index
+      - name: Install tools
         run: |
           sudo apt-get update
           sudo apt-get install -y dpkg-dev gzip
-          mkdir -p public/debs
-          cp debs/*.deb public/debs/
-          dpkg-scanpackages --multiversion debs /dev/null > public/Packages
-          gzip -9 -k public/Packages
-          cp -r debs/. public/debs/
 
-      - name: Add repository page
+      - name: Build APT repository
+        shell: bash
         run: |
-          cat > public/index.html <<'EOF'
+          set -euo pipefail
+
+          mkdir -p public/debs debs
+
+          shopt -s nullglob
+          packages=(debs/*.deb)
+          if [ ${#packages[@]} -gt 0 ]; then
+            cp "${packages[@]}" public/debs/
+          fi
+
+          cd public
+
+          dpkg-scanpackages --multiversion debs /dev/null > Packages
+          gzip -9 -k -f Packages
+
+          {
+            echo "Origin: me0wlys"
+            echo "Label: me0wlys Repo"
+            echo "Suite: stable"
+            echo "Codename: stable"
+            echo "Architectures: iphoneos-arm iphoneos-arm64 iphoneos-arm64e"
+            echo "Components: main"
+            echo "Description: me0wlys Sileo Repository"
+            echo "Date: $(date -Ru)"
+            echo "MD5Sum:"
+            for f in Packages Packages.gz; do
+              printf " %s %s %s\n" \
+                "$(md5sum "$f" | cut -d' ' -f1)" \
+                "$(wc -c < "$f" | tr -d ' ')" "$f"
+            done
+            echo "SHA1:"
+            for f in Packages Packages.gz; do
+              printf " %s %s %s\n" \
+                "$(sha1sum "$f" | cut -d' ' -f1)" \
+                "$(wc -c < "$f" | tr -d ' ')" "$f"
+            done
+            echo "SHA256:"
+            for f in Packages Packages.gz; do
+              printf " %s %s %s\n" \
+                "$(sha256sum "$f" | cut -d' ' -f1)" \
+                "$(wc -c < "$f" | tr -d ' ')" "$f"
+            done
+            echo "SHA512:"
+            for f in Packages Packages.gz; do
+              printf " %s %s %s\n" \
+                "$(sha512sum "$f" | cut -d' ' -f1)" \
+                "$(wc -c < "$f" | tr -d ' ')" "$f"
+            done
+          } > Release
+
+          cat > index.html <<'EOF'
           <!doctype html>
-          <html>
-          <head><meta name="viewport" content="width=device-width">
-          <title>My Sileo Repo</title></head>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>me0wlys Repo</title>
+          </head>
           <body>
-          <h1>My Sileo Repository</h1>
-          <p>Add this source to Sileo:</p>
-          <code id="source"></code>
-          <script>
-          document.getElementById('source').textContent =
-            location.href.replace(/\/?$/, '/');
-          </script>
+            <h1>me0wlys Repo</h1>
+            <p>Sileo APT repository.</p>
+            <p><a href="Release">Release metadata</a></p>
+            <p><a href="Packages.gz">Package index</a></p>
           </body>
           </html>
           EOF
