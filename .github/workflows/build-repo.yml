@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  repository_dispatch:
+    types: [tweak-built]
 
 permissions:
   contents: read
@@ -13,6 +15,11 @@ permissions:
 concurrency:
   group: pages
   cancel-in-progress: true
+
+env:
+  # >>> CHANGE THIS to the repo where the tweak is built (the one with the "latest-build" Release) <<<
+  TWEAK_REPO: Chenttos/R3v4mp
+  TWEAK_RELEASE_TAG: latest-build
 
 jobs:
   build:
@@ -25,18 +32,47 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y dpkg-dev gzip
 
+      - name: Download verified debs from the tweak Release
+        env:
+          # The tweak repo is private, so the built-in token cannot read its Releases.
+          # Add a fine-grained token as a secret named TWEAK_REPO_TOKEN in THIS repo (see the steps in chat).
+          GH_TOKEN: ${{ secrets.TWEAK_REPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${GH_TOKEN:-}" ] || { echo "::error::Secret TWEAK_REPO_TOKEN is missing in this repo's Actions secrets"; exit 1; }
+          # Start clean: any .deb committed to this repo (possibly truncated) is ignored on purpose.
+          rm -rf fetched && mkdir -p fetched
+
+          gh release download "$TWEAK_RELEASE_TAG" \
+            --repo "$TWEAK_REPO" \
+            --pattern '*.deb' --pattern 'SHA256SUMS.txt' \
+            --dir fetched --clobber
+
+          cd fetched
+          ls -l
+          # 1. checksums published by the tweak build must match what we downloaded
+          if [ -f SHA256SUMS.txt ]; then sha256sum -c SHA256SUMS.txt; fi
+          # 2. every deb must be a structurally valid archive
+          for f in *.deb; do
+            size=$(stat -c %s "$f")
+            echo "== $f: $size bytes"
+            [ $((size % 2)) -eq 0 ] || { echo "::error::$f has an odd size ($size), truncated"; exit 1; }
+            [ "$(head -c 8 "$f")" = '!<arch>' ] || { echo "::error::$f is not an ar archive"; exit 1; }
+            dpkg-deb --info "$f" >/dev/null
+            dpkg-deb --contents "$f" >/dev/null
+            echo "   $(dpkg-deb -f "$f" Package Version Architecture | tr '\n' ' ')"
+          done
+
       - name: Build APT repository
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p public/debs debs
-          shopt -s nullglob
-          packages=(debs/*.deb)
-          if [ ${#packages[@]} -gt 0 ]; then
-            cp "${packages[@]}" public/debs/
-          fi
+          mkdir -p public/debs
+          cp fetched/*.deb public/debs/
           cd public
           dpkg-scanpackages --multiversion debs /dev/null > Packages
+          test -s Packages
           gzip -9 -k -f Packages
           {
             echo "Origin: me0wlys"
@@ -60,7 +96,7 @@ jobs:
               done
             done
           } > Release
-          cat > index.html <<'EOF'
+          cat > index.html <<'HTML'
           <!doctype html>
           <html lang="en">
           <head>
@@ -76,7 +112,7 @@ jobs:
             <p><a href="Packages.gz">Package index</a></p>
           </body>
           </html>
-          EOF
+          HTML
 
       - name: Copy repository icon
         run: |
