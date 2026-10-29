@@ -32,6 +32,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y dpkg-dev gzip
 
+      - name: Debug release lookup
+        env:
+          GH_TOKEN: ${{ secrets.TWEAK_REPO_TOKEN }}
+        run: |
+          echo "Repo: $TWEAK_REPO"
+          gh repo view "$TWEAK_REPO" --json name,visibility
+          gh release list --repo "$TWEAK_REPO" --limit 10
+          
       - name: Download verified debs from the tweak Release
         env:
           # The tweak repo is private, so the built-in token cannot read its Releases.
